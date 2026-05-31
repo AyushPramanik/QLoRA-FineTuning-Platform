@@ -1,0 +1,48 @@
+{
+  "__comment": "Placeholder Grafana dashboard for the QLoRA platform. Replace with an exported dashboard JSON from Grafana UI.",
+  "title": "QLoRA Platform — Inference Metrics",
+  "uid": "qlora-inference",
+  "version": 1,
+  "panels": [
+    {
+      "title": "Request Rate (req/s)",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "rate(http_requests_total{job=\"qlora-api\"}[1m])",
+          "legendFormat": "{{method}} {{path}}"
+        }
+      ]
+    },
+    {
+      "title": "P95 Latency (ms)",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, rate(http_request_duration_ms_bucket{job=\"qlora-api\"}[5m]))",
+          "legendFormat": "p95 latency"
+        }
+      ]
+    },
+    {
+      "title": "GPU Utilisation (%)",
+      "type": "gauge",
+      "targets": [
+        {
+          "expr": "DCGM_FI_DEV_GPU_UTIL",
+          "legendFormat": "GPU {{gpu}}"
+        }
+      ]
+    },
+    {
+      "title": "Tokens / second",
+      "type": "stat",
+      "targets": [
+        {
+          "expr": "rate(qlora_tokens_generated_total[1m])",
+          "legendFormat": "tok/s"
+        }
+      ]
+    }
+  ]
+}

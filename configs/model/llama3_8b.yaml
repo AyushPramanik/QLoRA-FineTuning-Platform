@@ -1,0 +1,33 @@
+# Model configuration — LLaMA-3 8B
+# Override individual values from the CLI:
+#   python -m src.training.train model=llama3_8b model.lora.r=64
+
+name_or_path: meta-llama/Meta-Llama-3-8B
+revision: main
+trust_remote_code: false
+torch_dtype: bfloat16
+attn_implementation: flash_attention_2  # Requires flash-attn>=2.5
+
+lora:
+  r: 16
+  lora_alpha: 32
+  lora_dropout: 0.05
+  target_modules:
+    - q_proj
+    - k_proj
+    - v_proj
+    - o_proj
+    - gate_proj
+    - up_proj
+    - down_proj
+  bias: none
+  task_type: CAUSAL_LM
+
+quantization:
+  load_in_4bit: true
+  bnb_4bit_quant_type: nf4
+  bnb_4bit_compute_dtype: bfloat16
+  bnb_4bit_use_double_quant: true
+
+# VRAM estimate at 4-bit: ~6 GB (adapter training) / ~14 GB (full attention)
+# Minimum GPU: NVIDIA A10G (24 GB) for single-GPU training

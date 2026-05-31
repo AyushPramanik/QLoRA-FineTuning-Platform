@@ -1,0 +1,101 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: qlora-trainer
+  namespace: qlora-training
+  labels:
+    app: qlora-trainer
+    component: training
+    version: "0.1.0"
+spec:
+  completions: 1
+  parallelism: 1
+  backoffLimit: 2
+  activeDeadlineSeconds: 86400   # 24-hour timeout
+
+  template:
+    metadata:
+      labels:
+        app: qlora-trainer
+        component: training
+    spec:
+      restartPolicy: OnFailure
+      priorityClassName: high-priority
+
+      # ── Tolerations for GPU nodes ─────────────────────────────────────────
+      tolerations:
+        - key: nvidia.com/gpu
+          operator: Exists
+          effect: NoSchedule
+
+      nodeSelector:
+        cloud.google.com/gke-accelerator: nvidia-a100-80gb
+
+      volumes:
+        - name: model-cache
+          persistentVolumeClaim:
+            claimName: model-cache-pvc
+        - name: training-config
+          configMap:
+            name: qlora-train-config
+        - name: training-secrets
+          secret:
+            secretName: qlora-secrets
+
+      containers:
+        - name: trainer
+          image: your-registry/qlora-train:latest
+          imagePullPolicy: IfNotPresent
+
+          # ── Command ─────────────────────────────────────────────────────
+          args:
+            - "--config"
+            - "/configs/qlora_default.yaml"
+
+          # ── Resources ───────────────────────────────────────────────────
+          resources:
+            requests:
+              cpu: "8"
+              memory: "64Gi"
+              nvidia.com/gpu: "4"
+            limits:
+              cpu: "16"
+              memory: "128Gi"
+              nvidia.com/gpu: "4"
+
+          # ── Environment ─────────────────────────────────────────────────
+          env:
+            - name: HF_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: qlora-secrets
+                  key: hf-token
+            - name: WANDB_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: qlora-secrets
+                  key: wandb-api-key
+            - name: NCCL_DEBUG
+              value: "INFO"
+            - name: TOKENIZERS_PARALLELISM
+              value: "false"
+            - name: OUTPUT_DIR
+              value: /data/outputs
+            - name: HF_HOME
+              value: /data/model-cache
+
+          volumeMounts:
+            - name: model-cache
+              mountPath: /data/model-cache
+            - name: training-config
+              mountPath: /configs
+              readOnly: true
+
+      # ── Init containers ────────────────────────────────────────────────
+      initContainers:
+        - name: check-gpu
+          image: nvidia/cuda:12.1.1-base-ubuntu22.04
+          command: ["nvidia-smi"]
+          resources:
+            limits:
+              nvidia.com/gpu: "1"

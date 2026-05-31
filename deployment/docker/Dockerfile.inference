@@ -1,0 +1,79 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Dockerfile.inference — FastAPI + vLLM inference image
+#
+# Build:
+#   docker build -f deployment/docker/Dockerfile.inference -t qlora-inference:latest .
+#
+# Run:
+#   docker run --gpus all \
+#       -e MODEL_PATH=/models/llama3-8b-merged \
+#       -v /data/models:/models \
+#       -p 8000:8000 \
+#       qlora-inference:latest
+# ─────────────────────────────────────────────────────────────────────────────
+
+ARG CUDA_VERSION=12.1.1
+ARG UBUNTU_VERSION=22.04
+ARG PYTHON_VERSION=3.12
+
+FROM nvidia/cuda:${CUDA_VERSION}-cudnn8-runtime-ubuntu${UBUNTU_VERSION} AS base
+
+# ── System dependencies ────────────────────────────────────────────────────────
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        python${PYTHON_VERSION} \
+        python${PYTHON_VERSION}-dev \
+        python3-pip \
+        curl \
+        libssl-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN update-alternatives --install /usr/bin/python python /usr/bin/python${PYTHON_VERSION} 1 \
+    && update-alternatives --install /usr/bin/pip pip /usr/bin/pip3 1
+
+# ── Python dependencies ────────────────────────────────────────────────────────
+WORKDIR /build
+
+COPY pyproject.toml .
+RUN pip install --no-cache-dir --upgrade pip setuptools wheel \
+    && pip install --no-cache-dir \
+        torch==2.3.0+cu121 \
+        --index-url https://download.pytorch.org/whl/cu121 \
+    && pip install --no-cache-dir \
+        vllm>=0.4.2 \
+        fastapi>=0.111.0 \
+        uvicorn[standard]>=0.29.0 \
+        pydantic>=2.7.0 \
+        pydantic-settings>=2.2.0 \
+        structlog>=24.1.0 \
+        httpx>=0.27.0
+
+# ── Application code ──────────────────────────────────────────────────────────
+FROM base AS app
+
+WORKDIR /app
+
+COPY src/serving/ ./src/serving/
+COPY src/utils/   ./src/utils/
+COPY src/__init__.py ./src/__init__.py
+
+RUN pip install --no-cache-dir -e . --no-deps 2>/dev/null || true
+
+# ── Runtime environment ────────────────────────────────────────────────────────
+ENV PYTHONUNBUFFERED=1
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV TOKENIZERS_PARALLELISM=false
+ENV API_HOST=0.0.0.0
+ENV API_PORT=8000
+
+# Non-root user for security
+RUN groupadd -r appuser && useradd -r -g appuser appuser
+USER appuser
+
+EXPOSE 8000
+
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+    CMD curl -f http://localhost:8000/health || exit 1
+
+ENTRYPOINT ["uvicorn", "src.serving.api:app"]
+CMD ["--host", "0.0.0.0", "--port", "8000", "--workers", "1"]

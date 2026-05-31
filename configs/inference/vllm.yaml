@@ -1,0 +1,21 @@
+# vLLM inference server configuration
+
+model: /data/outputs/qlora-run/final-merged   # Local merged model path
+host: "0.0.0.0"
+port: 8080
+
+tensor_parallel_size: 1       # Number of GPUs for tensor parallelism
+gpu_memory_utilization: 0.90  # Reserve 10% for system overhead
+max_model_len: 4096
+dtype: auto                   # Let vLLM select the best dtype
+quantization: null            # Options: awq, gptq, squeezellm, null
+
+# Sampling defaults (can be overridden per request)
+max_tokens: 512
+temperature: 0.7
+top_p: 0.9
+top_k: 50
+repetition_penalty: 1.1
+
+# Server timeouts
+request_timeout_sec: 120

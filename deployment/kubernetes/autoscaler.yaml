@@ -1,0 +1,69 @@
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: qlora-inference-hpa
+  namespace: qlora-inference
+  labels:
+    app: qlora-inference
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: qlora-inference
+
+  minReplicas: 1
+  maxReplicas: 10
+
+  metrics:
+    # CPU-based scaling
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+
+    # Custom GPU utilisation metric (requires DCGM Exporter)
+    - type: Pods
+      pods:
+        metric:
+          name: DCGM_FI_DEV_GPU_UTIL
+        target:
+          type: AverageValue
+          averageValue: "70"
+
+    # Request queue depth (requires custom metrics adapter)
+    - type: Pods
+      pods:
+        metric:
+          name: qlora_pending_requests
+        target:
+          type: AverageValue
+          averageValue: "10"
+
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 60
+      policies:
+        - type: Pods
+          value: 2
+          periodSeconds: 60
+    scaleDown:
+      stabilizationWindowSeconds: 300   # 5-minute cooldown before scale-down
+      policies:
+        - type: Pods
+          value: 1
+          periodSeconds: 120
+
+---
+# PodDisruptionBudget — ensure at least 1 replica stays available during updates
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: qlora-inference-pdb
+  namespace: qlora-inference
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: qlora-inference

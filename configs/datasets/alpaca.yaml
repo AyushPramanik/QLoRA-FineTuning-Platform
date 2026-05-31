@@ -1,0 +1,18 @@
+# Dataset configuration — Alpaca instruction-following dataset
+
+name: tatsu-lab/alpaca
+split: train
+val_split_size: 0.05       # 5% of training data used for validation
+prompt_template: alpaca
+max_samples: null          # null = use entire dataset
+preprocessing_num_workers: 4
+
+# Column names present in this dataset
+columns:
+  instruction: instruction
+  input: input
+  output: output
+
+# Filtering: drop samples with empty instruction
+filter_empty_instruction: true
+filter_min_length: 10      # minimum character length after formatting

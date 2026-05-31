@@ -1,0 +1,26 @@
+# FSDP distributed training configuration
+# Use this when training spans multiple GPUs via FSDP.
+# Launch with: torchrun --nproc_per_node=8 -m src.training.train training=fsdp
+
+_base_: qlora_default  # Inherits defaults; only overrides are listed below.
+
+output_dir: /data/outputs/fsdp-run
+run_name: qlora-llama3-70b-fsdp
+
+# Larger batch possible with full sharding across 8 GPUs
+per_device_train_batch_size: 2
+gradient_accumulation_steps: 4
+# Effective batch size = 2 * 4 * 8 GPUs = 64
+
+max_seq_length: 4096
+
+fsdp:
+  sharding_strategy: FULL_SHARD
+  cpu_offload: false
+  mixed_precision: true
+  backward_prefetch: true
+  activation_checkpointing: true
+  auto_wrap_policy: transformer_auto_wrap_policy
+
+# DeepSpeed is disabled when using FSDP natively.
+deepspeed: null
