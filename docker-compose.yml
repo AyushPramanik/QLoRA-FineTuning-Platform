@@ -1,0 +1,123 @@
+version: "3.9"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# QLoRA Fine-Tuning Platform — Docker Compose
+# Development / local orchestration only.
+# For production use the Kubernetes manifests under deployment/kubernetes/.
+# ─────────────────────────────────────────────────────────────────────────────
+
+x-common-env: &common-env
+  env_file: .env
+  environment:
+    - LOG_LEVEL=${LOG_LEVEL:-INFO}
+    - LOG_FORMAT=${LOG_FORMAT:-json}
+    - HF_TOKEN=${HF_TOKEN}
+    - WANDB_API_KEY=${WANDB_API_KEY}
+
+services:
+  # ── Inference API ────────────────────────────────────────────────────────────
+  api:
+    build:
+      context: .
+      dockerfile: deployment/docker/Dockerfile.inference
+    image: qlora-inference:latest
+    container_name: qlora-api
+    <<: *common-env
+    ports:
+      - "${API_PORT:-8000}:8000"
+    volumes:
+      - model-cache:/data/models
+      - ./outputs:/data/outputs:ro
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    restart: unless-stopped
+    networks:
+      - qlora-net
+
+  # ── Training Job (manual trigger) ────────────────────────────────────────────
+  trainer:
+    build:
+      context: .
+      dockerfile: deployment/docker/Dockerfile.train
+    image: qlora-train:latest
+    container_name: qlora-trainer
+    <<: *common-env
+    volumes:
+      - model-cache:/data/models
+      - huggingface-cache:/data/huggingface_cache
+      - ./outputs:/data/outputs
+      - ./configs:/app/configs:ro
+      - ./datasets:/data/datasets
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    profiles:
+      - training
+    networks:
+      - qlora-net
+
+  # ── Prometheus ────────────────────────────────────────────────────────────────
+  prometheus:
+    image: prom/prometheus:v2.52.0
+    container_name: qlora-prometheus
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--web.console.libraries=/etc/prometheus/console_libraries"
+      - "--web.console.templates=/etc/prometheus/consoles"
+      - "--web.enable-lifecycle"
+    ports:
+      - "9090:9090"
+    restart: unless-stopped
+    networks:
+      - qlora-net
+    profiles:
+      - monitoring
+
+  # ── Grafana ───────────────────────────────────────────────────────────────────
+  grafana:
+    image: grafana/grafana:10.4.2
+    container_name: qlora-grafana
+    ports:
+      - "3000:3000"
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./monitoring/grafana-dashboard.json:/etc/grafana/provisioning/dashboards/qlora.json:ro
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD:-admin}
+      - GF_USERS_ALLOW_SIGN_UP=false
+    depends_on:
+      - prometheus
+    restart: unless-stopped
+    networks:
+      - qlora-net
+    profiles:
+      - monitoring
+
+volumes:
+  model-cache:
+  huggingface-cache:
+  prometheus-data:
+  grafana-data:
+
+networks:
+  qlora-net:
+    driver: bridge
